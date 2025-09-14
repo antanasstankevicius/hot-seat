@@ -17,6 +17,7 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "protocol_examples_common.h"
+#include "esp_random.h"
 
 #include "esp_log.h"
 #include "mqtt_client.h"
@@ -24,31 +25,10 @@
 #include "esp_ota_ops.h"
 #include <sys/param.h>
 
-static const char *TAG = "mqtts_example";
+static const char *TAG = "hot-seat";
 
-
-#if CONFIG_BROKER_CERTIFICATE_OVERRIDDEN == 1
-static const uint8_t broker_certificate_pem_start[]  = "-----BEGIN CERTIFICATE-----\n" CONFIG_BROKER_CERTIFICATE_OVERRIDE "\n-----END CERTIFICATE-----";
-#else
 extern const uint8_t broker_certificate_pem_start[]   asm("_binary_broker_certificate_pem_start");
-#endif
 extern const uint8_t broker_certificate_pem_end[]   asm("_binary_broker_certificate_pem_end");
-
-//
-// Note: this function is for testing purposes only publishing part of the active partition
-//       (to be checked against the original binary)
-//
-static void send_binary(esp_mqtt_client_handle_t client)
-{
-    esp_partition_mmap_handle_t out_handle;
-    const void *binary_address;
-    const esp_partition_t *partition = esp_ota_get_running_partition();
-    esp_partition_mmap(partition, 0, partition->size, ESP_PARTITION_MMAP_DATA, &binary_address, &out_handle);
-    // sending only the configured portion of the partition (if it's less than the partition size)
-    int binary_size = MIN(CONFIG_BROKER_BIN_SIZE_TO_SEND, partition->size);
-    int msg_id = esp_mqtt_client_publish(client, "/topic/binary", binary_address, binary_size, 0, 0);
-    ESP_LOGI(TAG, "binary sent with msg_id=%d", msg_id);
-}
 
 /*
  * @brief Event handler registered to receive MQTT events
@@ -64,28 +44,15 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 {
     ESP_LOGD(TAG, "Event dispatched from event loop base=%s, event_id=%" PRIi32, base, event_id);
     esp_mqtt_event_handle_t event = event_data;
-    esp_mqtt_client_handle_t client = event->client;
-    int msg_id;
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-        msg_id = esp_mqtt_client_subscribe(client, "/topic/qos0", 0);
-        ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
-
-        msg_id = esp_mqtt_client_subscribe(client, "/topic/qos1", 1);
-        ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
-
-        msg_id = esp_mqtt_client_unsubscribe(client, "/topic/qos1");
-        ESP_LOGI(TAG, "sent unsubscribe successful, msg_id=%d", msg_id);
         break;
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
         break;
-
     case MQTT_EVENT_SUBSCRIBED:
         ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d, return code=0x%02x ", event->msg_id, (uint8_t)*event->data);
-        msg_id = esp_mqtt_client_publish(client, "/topic/qos0", "data", 0, 0, 0);
-        ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
         break;
     case MQTT_EVENT_UNSUBSCRIBED:
         ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
@@ -97,10 +64,6 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         ESP_LOGI(TAG, "MQTT_EVENT_DATA");
         printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
         printf("DATA=%.*s\r\n", event->data_len, event->data);
-        if (strncmp(event->data, "send binary please", event->data_len) == 0) {
-            ESP_LOGI(TAG, "Sending the binary");
-            send_binary(client);
-        }
         break;
     case MQTT_EVENT_ERROR:
         ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
@@ -128,6 +91,10 @@ static void mqtt_app_start(void)
             .address.uri = CONFIG_BROKER_URI,
             .verification.certificate = (const char *)broker_certificate_pem_start
         },
+        .credentials = {
+            .username = CONFIG_MQTT_AUTH_USERNAME,
+            .authentication.password = CONFIG_MQTT_AUTH_PASSWORD
+        },
     };
 
     ESP_LOGI(TAG, "[APP] Free memory: %" PRIu32 " bytes", esp_get_free_heap_size());
@@ -135,6 +102,16 @@ static void mqtt_app_start(void)
     /* The last argument may be used to pass data to the event handler, in this example mqtt_event_handler */
     esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
     esp_mqtt_client_start(client);
+
+    while (1) {
+        char message[50];
+        int8_t temperature = esp_random() % 100;
+        uint8_t humidity = esp_random() % 100;
+        snprintf(message, sizeof(message), "{\"temperature\":%d,\"humidity\":%d}", temperature, humidity);
+        ESP_LOGI(TAG, "Publish to topic '/topic/hot-seat': %s", message);
+        esp_mqtt_client_publish(client, "/topic/hot-seat", message, 0, 0, 0);
+        vTaskDelay(5000 / portTICK_PERIOD_MS);
+    }
 }
 
 void app_main(void)

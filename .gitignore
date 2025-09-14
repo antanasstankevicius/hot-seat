@@ -1,4 +1,3 @@
 # .gitignore
 build/*
 main/broker_certificate.pem
-.env
