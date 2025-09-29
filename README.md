@@ -7,8 +7,6 @@ Key features:
 * Secure MQTT (MQTTS) communication using the ESP-MQTT library
 * Certificate-based authentication with embedded PEM files
 
-![example](media/MQTT_message.gif)
-
 ## How to use example
 
 ### Hardware Required
@@ -34,6 +32,11 @@ Build the project and flash it to the board, then run monitor tool to view seria
 ```
 idf.py -p PORT flash monitor
 ```
+
+### Example output
+Left: messages received on the MQTT broker in real-time. Right: ESP32 serial output.
+
+![example](media/MQTT_message.gif)
 
 ## To Do
 
