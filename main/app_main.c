@@ -17,13 +17,13 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "protocol_examples_common.h"
-#include "esp_random.h"
 
 #include "esp_log.h"
 #include "mqtt_client.h"
 #include "esp_tls.h"
 #include "esp_ota_ops.h"
 #include <sys/param.h>
+#include "sensor_driver.h"
 
 static const char *TAG = "hot-seat";
 
@@ -97,6 +97,8 @@ static void mqtt_app_start(void)
         },
     };
 
+    sensor_init();
+
     ESP_LOGI(TAG, "[APP] Free memory: %" PRIu32 " bytes", esp_get_free_heap_size());
     esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
     /* The last argument may be used to pass data to the event handler, in this example mqtt_event_handler */
@@ -105,8 +107,9 @@ static void mqtt_app_start(void)
 
     while (1) {
         char message[50];
-        int8_t temperature = esp_random() % 100;
-        uint8_t humidity = esp_random() % 100;
+        int8_t temperature;
+        uint8_t humidity;
+        sensor_read(&temperature, &humidity);
         snprintf(message, sizeof(message), "{\"temperature\":%d,\"humidity\":%d}", temperature, humidity);
         ESP_LOGI(TAG, "Publish to topic '/topic/hot-seat': %s", message);
         esp_mqtt_client_publish(client, "/topic/hot-seat", message, 0, 0, 0);
